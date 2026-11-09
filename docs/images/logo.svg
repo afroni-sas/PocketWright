@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72" width="160" height="160" role="img" aria-label="PocketWright">
+  <rect x="18" y="18" width="72" height="72" rx="16" fill="#1E2A44"/>
+  <path fill="#FFFFFF" d="M30 34h48a4 4 0 0 1 4 4v32a4 4 0 0 1-4 4H30a4 4 0 0 1-4-4V38a4 4 0 0 1 4-4z"/>
+  <path fill="#1E2A44" d="M30 43h48v27H30z"/>
+  <circle cx="33" cy="38.5" r="1.6" fill="#1E2A44"/>
+  <circle cx="38.5" cy="38.5" r="1.6" fill="#1E2A44"/>
+  <path fill="#4ADE80" d="M49 49l12 7.5L49 64z"/>
+</svg>
