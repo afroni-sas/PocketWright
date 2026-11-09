@@ -1,0 +1,38 @@
+PocketWright
+Copyright 2026 AFRONI SAS and the PocketWright contributors
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+This product includes or downloads the following third-party software.
+
+Included in this repository
+---------------------------
+
+WebViewUpgrade
+  https://github.com/JonaNorman/WebViewUpgrade
+  Apache License 2.0
+  A modified copy is in webviewup/. The changes are listed in webviewup/README.md.
+
+Fetched at build time and bundled in the APK
+--------------------------------------------
+
+Playwright (playwright-core)
+  https://github.com/microsoft/playwright
+  Copyright (c) Microsoft Corporation
+  Apache License 2.0
+
+Node.js for mobile (nodejs-mobile)
+  https://github.com/digidem/nodejs-mobile
+  MIT License, with the third-party licenses of Node.js
+
+Jetpack Compose and AndroidX libraries, Kotlin, kotlinx.coroutines,
+kotlinx.serialization and Ktor
+  Apache License 2.0
+
+Downloaded at runtime, only when the user asks for it
+-----------------------------------------------------
+
+LineageOS WebView (a build of Chromium)
+  https://github.com/LineageOS
+  Not distributed with PocketWright. Governed by the licenses of the Chromium
+  project and its components.
