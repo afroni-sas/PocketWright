@@ -1,0 +1,67 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. You can write in English or French.
+        Please remove API keys, phone numbers, device serials and personal data from logs and screenshots.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The API calls or Playwright code are very helpful.
+      placeholder: |
+        1. POST /sessions with ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Phone and Android version
+      placeholder: TECNO BG7n, Android 13
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PocketWright version or commit
+    validations:
+      required: true
+  - type: input
+    id: engines
+    attributes:
+      label: Chromium and Playwright versions
+      description: Shown under Paramètres → Mises à jour, or by `GET /`.
+      placeholder: Chromium 156.0.8078.47 (app engine), Playwright 1.65.0
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Browser interface
+        - REST or WebSocket API
+        - Playwright over CDP
+        - Fingerprints
+        - Messaging
+        - Updates
+        - Background service
+        - Build
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `adb logcat -s PocketWright`, if you can get it.
+      render: text
