@@ -26,6 +26,9 @@ tasks.named("preBuild") { dependsOn(prepareEngine) }
 // Une copie à part (autre identifiant, autre port) pour comparer des moteurs sans toucher à l'app installée.
 val probe = providers.gradleProperty("pocketwright.probe").isPresent
 
+// The key for published APKs, set by the release workflow. Without it, release builds keep the development key.
+val publishKeystore = providers.environmentVariable("POCKETWRIGHT_KEYSTORE").orNull
+
 android {
     namespace = "com.afroni.pocketwright"
     compileSdk = 37
@@ -48,6 +51,16 @@ android {
             version = "4.1.2"
         }
     }
+    signingConfigs {
+        if (publishKeystore != null) {
+            create("publish") {
+                storeFile = file(publishKeystore)
+                storePassword = providers.environmentVariable("POCKETWRIGHT_KEYSTORE_PASSWORD").get()
+                keyAlias = "pocketwright"
+                keyPassword = storePassword
+            }
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -59,7 +72,7 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // La clé de développement : l'APK s'installe par-dessus l'existant sans perdre onglets ni moteur.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (publishKeystore != null) "publish" else "debug")
             isDebuggable = probe
         }
     }

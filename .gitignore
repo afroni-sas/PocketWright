@@ -16,3 +16,4 @@ third_party/
 *.keystore
 *.hprof
 node_modules/
+*.p12
