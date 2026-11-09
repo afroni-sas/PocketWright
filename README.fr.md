@@ -8,6 +8,7 @@
 pilotée par une API locale sur le téléphone lui-même.**
 
 [![CI](https://github.com/afroni-sas/PocketWright/actions/workflows/ci.yml/badge.svg)](https://github.com/afroni-sas/PocketWright/actions/workflows/ci.yml)
+[![Dernière version](https://img.shields.io/github/v/release/afroni-sas/PocketWright?label=version)](https://github.com/afroni-sas/PocketWright/releases/latest)
 [![Licence : Apache 2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?logo=kotlin&logoColor=white)
@@ -46,26 +47,16 @@ Ni root ni Google Play ne sont nécessaires.
 
 ## Démarrage rapide
 
-Il n'y a pas encore d'APK préconstruit : on compile depuis les sources. Il faut un JDK 17, le SDK Android (compile SDK 37),
-le NDK `30.0.16248370`, CMake `4.1.2`, et Node.js avec npm. Détails dans le [guide de développement](docs/development.md)
-(en anglais).
-
-**1. Construire et installer.** Prenez le build release : sur un petit téléphone, le build debug démarre environ dix fois
-moins vite.
+**1. Installer l'app.** Téléchargez l'APK de la [dernière version](https://github.com/afroni-sas/PocketWright/releases/latest),
+puis installez-le sur un téléphone arm64 sous Android 8.0 ou plus récent, directement sur le téléphone ou depuis un ordinateur :
 
 ```bash
-git clone https://github.com/afroni-sas/PocketWright.git
-```
-
-```bash
-cd PocketWright && ./gradlew :app:assembleRelease -Ppocketwright.abis=arm64-v8a
-```
-
-```bash
-adb install -r app/build/outputs/apk/release/app-release.apk
+adb install PocketWright-0.1.0-arm64-v8a.apk
 ```
 
 N'ajoutez pas `-g` à `adb install` : cette option accorderait d'un coup toutes les permissions, SMS et contacts compris.
+Vous pouvez [vérifier le téléchargement](SECURITY.md#verifying-a-release) ou
+[construire depuis les sources](#construire-depuis-les-sources).
 
 **2. Récupérer la clé de l'API.** Ouvrez l'app, puis **Paramètres → API locale**.
 
@@ -99,6 +90,27 @@ await page.goto('https://example.com');
 console.log(await page.title());
 await browser.close(); // Déconnecte. La session reste ouverte sur le téléphone.
 ```
+
+### Construire depuis les sources
+
+Il faut un JDK 17, le SDK Android (compile SDK 37), le NDK `30.0.16248370`, CMake `4.1.2`, et Node.js avec npm. Détails dans
+le [guide de développement](docs/development.md) (en anglais).
+
+```bash
+git clone https://github.com/afroni-sas/PocketWright.git
+```
+
+```bash
+cd PocketWright && ./gradlew :app:assembleRelease -Ppocketwright.abis=arm64-v8a
+```
+
+```bash
+adb install -r app/build/outputs/apk/release/app-release.apk
+```
+
+Prenez le build release : sur un petit téléphone, le build debug démarre environ dix fois moins vite. Un build depuis les
+sources est signé avec une clé de développement : il ne peut pas mettre à jour un APK publié, ni l'inverse. Pour passer de
+l'un à l'autre, il faut désinstaller, ce qui efface les données de l'app.
 
 ## L'API en bref
 

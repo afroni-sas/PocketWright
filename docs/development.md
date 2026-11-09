@@ -89,3 +89,33 @@ real-device suites.
 | Node.js for Android | Update `NODE_MOBILE_VERSION` and `NODE_MOBILE_SHA256` in `scripts/prepare-engine.sh` |
 | WebViewUpgrade | Vendored in `webviewup/`. Re-apply the changes listed in [its README](../webviewup/README.md) |
 | NDK, CMake | `app/build.gradle.kts`, this guide, and `.github/workflows/ci.yml` |
+
+## Publishing a release
+
+Releases are built by [`release.yml`](../.github/workflows/release.yml) when a `v*` tag is pushed. The workflow builds the arm64 APK
+from the tag, signs it, checks the certificate and publishes the GitHub release.
+
+1. Set `versionName` and increase `versionCode` in `app/build.gradle.kts`.
+2. Move the `[Unreleased]` entries of `CHANGELOG.md` to a section for the new version. The release notes come from it.
+3. Commit to `main`, then tag and push:
+
+```bash
+git tag -a v0.2.0 -m "PocketWright 0.2.0"
+```
+
+```bash
+git push origin v0.2.0
+```
+
+The tag must match `versionName`, or the workflow stops. A tag with a hyphen, such as `v0.2.0-rc.1`, is published as a pre-release.
+
+| Repository secret | Contents |
+| --- | --- |
+| `POCKETWRIGHT_KEYSTORE_BASE64` | The PKCS#12 release key, in base64. Its alias must be `pocketwright` |
+| `POCKETWRIGHT_KEYSTORE_PASSWORD` | Its password |
+
+**The key must never change.** Android refuses an update signed by another key, so losing it would force every user to uninstall
+and lose their data. GitHub cannot display a secret again, so maintainers keep an offline backup. The expected certificate digest is in
+the workflow, and a build signed by another key is not published.
+
+To sign a local build with this key, set `POCKETWRIGHT_KEYSTORE` and `POCKETWRIGHT_KEYSTORE_PASSWORD` in the environment.

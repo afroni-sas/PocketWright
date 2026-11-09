@@ -15,7 +15,27 @@ is a volunteer-maintained open source project and has no bug bounty.
 
 ## Supported versions
 
-The project has not had a stable release yet. Security fixes land on the `main` branch.
+Security fixes land on the `main` branch and ship in the next release. Only the latest release is supported.
+
+## Verifying a release
+
+Published APKs are built by GitHub Actions from the tag, and signed with a dedicated key. To check a download:
+
+```bash
+sha256sum -c PocketWright-0.1.0-arm64-v8a.apk.sha256
+```
+
+```bash
+apksigner verify --print-certs PocketWright-0.1.0-arm64-v8a.apk
+```
+
+The certificate's SHA-256 digest must be:
+
+```text
+2d8ac18c51c6222671f33023bb9ba34f246c98f1078dc662499335220cbc58ba
+```
+
+The key is stored in the repository's encrypted Actions secrets. Pull requests from forks cannot reach it.
 
 ## Threat model
 
@@ -50,7 +70,7 @@ key, because `run` executes that program's code inside the app.
   file's origin. The SHA-256 read over HTTPS from LineageOS's repository does. Someone who took over that repository
   could publish a malicious engine.
 - **WebView debugging.** It is always on, because the CDP gateway depends on it. Anyone with ADB access to the phone can inspect its tabs, so keep USB debugging off when you do not need it.
-- **Release signing.** The default release build is signed with the development key, for local use. Sign with your own key before distributing an APK.
+- **Builds from source.** A release build made without the publishing key is signed with the local development key. It is meant for your own phone. Sign with your own key before distributing it.
 - **`adb install -g`** grants every permission without the user's choice, including SMS and contacts. Do not use it.
 
 ### Out of scope
