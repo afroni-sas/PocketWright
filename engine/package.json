@@ -1,0 +1,11 @@
+{
+  "name": "pocketwright-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Le moteur Playwright embarqué dans PocketWright (Node.js via nodejs-mobile).",
+  "main": "main.js",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "playwright-core": "1.65.0"
+  }
+}
