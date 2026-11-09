@@ -1,0 +1,12 @@
+{
+  "name": "pocketwright-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Scénario de bout en bout de PocketWright sur un téléphone branché en adb.",
+  "scripts": {
+    "test": "node scenario.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.65.0"
+  }
+}
