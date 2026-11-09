@@ -14,7 +14,7 @@
 The SDK location goes in `local.properties` or `ANDROID_HOME`. Install the SDK components with:
 
 ```bash
-sdkmanager "platforms;android-37" "ndk;30.0.16248370" "cmake;4.1.2"
+sdkmanager "platforms;android-37.0" "ndk;30.0.16248370" "cmake;4.1.2"
 ```
 
 The first build runs `scripts/prepare-engine.sh`, which downloads Node.js for Android into `third_party/` (verified by SHA-256)
