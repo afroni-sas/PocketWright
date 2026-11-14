@@ -46,6 +46,10 @@ import java.util.concurrent.atomic.AtomicLong
  *  - `Target.createTarget` (`context.newPage()`) ouvre un nouvel onglet dans le groupe ;
  *  - `Target.createBrowserContext` (`browser.newContext()`) réserve un nouveau groupe, donc un nouveau profil ;
  *  - `Page.captureScreenshot` hors de l'écran est servi par la capture native de l'app.
+ *
+ * Une session au niveau du navigateur (`Target.attachToBrowserTarget`, que Playwright ouvre pour
+ * `context.newCDPSession()` et `browser.newBrowserCDPSession()`) passe par le même filtre que la connexion
+ * elle-même : elle ne voit, elle non plus, que les pages du groupe.
  */
 class CdpGateway(
     private val session: BrowserSession,
@@ -66,6 +70,9 @@ class CdpGateway(
     /** Session CDP → cible, pour les pages seulement. */
     private val pageSessions = ConcurrentHashMap<String, String>()
     private val getTargetsCalls = ConcurrentHashMap.newKeySet<Long>()
+    /** Les sessions au niveau du navigateur ouvertes par le client, filtrées comme la connexion elle-même. */
+    private val browserSessions = ConcurrentHashMap.newKeySet<String>()
+    private val browserTargetCalls = ConcurrentHashMap.newKeySet<Long>()
     /** Les `browserContextId` donnés au client → le groupe d'onglets correspondant. */
     private val contexts = ConcurrentHashMap<String, String>()
     private val targetContext = ConcurrentHashMap<String, String>()
@@ -149,7 +156,7 @@ class CdpGateway(
         val params = msg["params"] as? JsonObject ?: JsonObject(emptyMap())
         val call = ClientCall(id, sessionId)
 
-        if (sessionId != null) {
+        if (sessionId != null && sessionId !in browserSessions) {
             when {
                 sessionId !in allowed -> call.fail("Session with given id not found.", -32001)
                 method == "Page.captureScreenshot" && pageSessions.containsKey(sessionId) -> spawn(call) {
@@ -188,12 +195,17 @@ class CdpGateway(
                 onContextPage(params.str("browserContextId")) { child -> locator.call("Network.clearBrowserCookies", EMPTY, child) }
                 call.reply()
             }
+            // Ces réglages valent pour la session qui les envoie : seuls ceux de la connexion guident la passerelle.
             "Target.setAutoAttach" -> {
-                autoAttach = params.str("autoAttach") == "true"
+                if (sessionId == null) autoAttach = params.str("autoAttach") == "true"
                 upstream.send(text)
             }
             "Target.setDiscoverTargets" -> {
-                discover = params.str("discover") == "true"
+                if (sessionId == null) discover = params.str("discover") == "true"
+                upstream.send(text)
+            }
+            "Target.attachToBrowserTarget" -> {
+                id?.let { browserTargetCalls += it }
                 upstream.send(text)
             }
             "Target.createBrowserContext" -> {
@@ -223,7 +235,8 @@ class CdpGateway(
             "Target.detachFromTarget", "Target.sendMessageToTarget" -> {
                 val target = params.str("targetId")
                 val child = params.str("sessionId")
-                if ((child != null && child !in allowed) || (target != null && !targets.containsKey(target))) {
+                val known = child == null || child in allowed || child in browserSessions
+                if (!known || (target != null && !targets.containsKey(target))) {
                     call.fail("Session with given id not found.", -32001)
                 } else {
                     upstream.send(text)
@@ -341,9 +354,9 @@ class CdpGateway(
         if (text.length > FAST_PATH_CHARS) {
             val id = leadingId(text)
             val child = trailingSession(text)
-            val relayable = child == null || child in allowed
-            if (id != null && id < INTERNAL_BASE && id !in getTargetsCalls && relayable) return sendToClient(text)
-            if (id == null && child != null && child in allowed && !text.startsWith(TARGET_EVENT)) return sendToClient(text)
+            val relayable = child == null || child in allowed || child in browserSessions
+            if (id != null && id < INTERNAL_BASE && id !in getTargetsCalls && id !in browserTargetCalls && relayable) return sendToClient(text)
+            if (id == null && child != null && relayable && !text.startsWith(TARGET_EVENT)) return sendToClient(text)
         }
         val msg = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
         val id = msg["id"]?.jsonPrimitive?.longOrNull
@@ -354,7 +367,10 @@ class CdpGateway(
         if (!ready) return
         val sessionId = msg.str("sessionId")
         if (id != null) {
-            if (sessionId == null && getTargetsCalls.remove(id)) {
+            if (browserTargetCalls.remove(id)) {
+                ((msg["result"] as? JsonObject)?.str("sessionId"))?.let { browserSessions += it }
+            }
+            if ((sessionId == null || sessionId in browserSessions) && getTargetsCalls.remove(id)) {
                 val result = msg["result"] as? JsonObject
                 val infos = result?.get("targetInfos") as? JsonArray
                 if (infos != null) {
@@ -375,6 +391,7 @@ class CdpGateway(
             "Target.attachedToTarget" -> onAttached(text, msg, params, sessionId)
             "Target.detachedFromTarget" -> {
                 val child = params.str("sessionId") ?: return
+                if (browserSessions.remove(child)) return sendToClient(text)
                 if (!allowed.remove(child)) return
                 sendToClient(text)
                 if (pageSessions.remove(child) != null && pageSessions.isEmpty() && creating.get() == 0) {
@@ -406,7 +423,7 @@ class CdpGateway(
                     sendToClient(text)
                 }
             }
-            else -> if (sessionId == null || sessionId in allowed) sendToClient(text)
+            else -> if (sessionId == null || sessionId in allowed || sessionId in browserSessions) sendToClient(text)
         }
     }
 
@@ -414,14 +431,19 @@ class CdpGateway(
         val child = params.str("sessionId") ?: return
         val info = params["targetInfo"] as? JsonObject
         val target = info?.str("targetId")
-        if (sessionId != null) {
+        if (sessionId != null && sessionId !in browserSessions) {
             if (sessionId in allowed) {
                 allowed += child
                 sendToClient(text)
             }
             return
         }
+        // Sur la connexion, ou sur une session navigateur du client : on ne laisse voir que les pages du groupe.
         when {
+            info?.str("type") == "browser" -> {
+                browserSessions += child
+                sendToClient(text)
+            }
             info != null && target != null && isOurs(info) -> {
                 val opener = info.str("openerId")
                 if (!targets.containsKey(target) && opener != null) {
@@ -433,14 +455,14 @@ class CdpGateway(
                 sendToClient(rewriteAttach(msg, target, text))
             }
             // Une nouvelle page pendant la création d'un onglet : on la garde de côté le temps de savoir.
-            creating.get() > 0 && target != null && info?.str("type") == "page" -> {
+            sessionId == null && creating.get() > 0 && target != null && info?.str("type") == "page" -> {
                 if (params.str("waitingForDebugger") == "true") fireAndForget("Runtime.runIfWaitingForDebugger", EMPTY, child)
                 held[target] = HeldAttach(text, msg, child)
             }
             else -> {
                 // La page d'un autre onglet : on la relâche, sans la laisser en pause.
                 if (params.str("waitingForDebugger") == "true") fireAndForget("Runtime.runIfWaitingForDebugger", EMPTY, child)
-                fireAndForget("Target.detachFromTarget", buildJsonObject { put("sessionId", child) })
+                fireAndForget("Target.detachFromTarget", buildJsonObject { put("sessionId", child) }, sessionId)
             }
         }
     }
