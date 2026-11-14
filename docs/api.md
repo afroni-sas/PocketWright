@@ -58,6 +58,10 @@ Error messages are currently in French.
 Tabs opened by hand share one profile, as in a regular browser. Each session opened by the API has its own profile
 (cookies and storage). A session survives the end of its connection and app restarts. Only a close command ends it.
 
+In the description of a session, `shown` says whether the tab is on the app's screen, and `rendered` whether its page is drawn,
+so that it follows touch swipes, flings and the mouse wheel as on screen. A session that is not on screen is drawn while a client
+is connected and for 30 seconds after its last command. Taps and typing work either way.
+
 | Route | Purpose |
 | --- | --- |
 | `GET /sessions` | List sessions |

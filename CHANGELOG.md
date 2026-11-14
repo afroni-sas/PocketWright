@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `rendered` in the session description: whether the page is drawn, and so follows touch gestures and the mouse wheel.
+
+### Fixed
+
+- Touch swipes, flings and the mouse wheel scroll sessions that are not on screen. While such a session is driven (a client connected, or a command in the last 30 seconds), its page draws in a small private virtual display (PW-029).
+
 ## [0.1.0] - 2026-11-09
 
 First public version. It has been validated on one phone (TECNO BG7n, Android 13), so please treat other devices as untested and [tell us how it behaves](https://github.com/afroni-sas/PocketWright/issues/new/choose). The APK is for arm64 phones.

@@ -344,6 +344,60 @@ export async function advanced({ step, check, api, cmd, headers, BASE, SITE, KEY
         check('mode accept : prompt rend le texte réglé', await cmd(sid, 'evaluate', { expression: "() => prompt('?')" }) === 'réglé');
       } finally { await drop(sid); }
     });
+
+    await step('18 quater. Gestes au doigt dans un onglet caché (PW-029)', async () => {
+      const sid = await create({ name: 'gestes-caches' });
+      const b = await chromium.connectOverCDP(`${BASE.replace('http', 'ws')}/cdp/${sid}?key=${encodeURIComponent(KEY)}`, { isWebView: true, timeout: 20000 });
+      try {
+        const context = b.contexts()[0], page = context.pages()[0];
+        page.setDefaultTimeout(12000);
+        await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0">
+          <script>window.__moves = 0; addEventListener('touchmove', () => __moves++, { passive: true });</script>
+          ${'<div style="height:60px;border-bottom:1px solid #ccc">ligne</div>'.repeat(400)}</body>`);
+        const info = (await api('GET', `/sessions/${sid}`)).result;
+        check('onglet piloté hors de l\'écran : rendered, sans shown', info.rendered === true && info.shown === false, `shown ${info.shown}, rendered ${info.rendered}`);
+        const cdp = await context.newCDPSession(page);
+        const y = () => page.evaluate(() => scrollY);
+        // Avant le correctif, DevTools ne répondait plus après le premier touchMove : on n'attend pas indéfiniment.
+        const answered = (promise) => Promise.race([promise.then(() => true, () => false), sleep(3000).then(() => false)]);
+        // Un lancer : 380 px vers le haut, un point toutes les 16 ms comme un écran tactile, puis le doigt se lève.
+        let ts = Date.now() / 1000, acks = 0;
+        const touch = async (type, touchPoints) => { if (await answered(cdp.send('Input.dispatchTouchEvent', { type, touchPoints, timestamp: ts }))) acks++; };
+        await touch('touchStart', [{ x: 180, y: 600 }]);
+        for (let i = 1; i <= 19; i++) {
+          await sleep(16);
+          ts += 0.016;
+          await touch('touchMove', [{ x: 180, y: 600 - i * 20 }]);
+        }
+        ts += 0.008;
+        await touch('touchEnd', []);
+        const swiped = await y();
+        await sleep(2000);
+        const flung = await y();
+        check('chaque événement tactile reçoit sa réponse', acks === 21, `${acks}/21`);
+        check('la page suit le glissé', swiped > 300, swiped);
+        check('puis continue sur sa lancée', flung > swiped + 100, `${swiped} → ${flung}`);
+        check('la page reçoit les touchmove', (await page.evaluate(() => window.__moves)) > 10);
+        const start = await y();
+        check('la molette répond', await answered(cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 180, y: 400, deltaX: 0, deltaY: 400 })));
+        await sleep(1000);
+        const wheeled = await y();
+        check('la molette fait défiler', wheeled - start >= 300, `${start} → ${wheeled}`);
+        const shot = await page.screenshot();
+        check('capture de l\'onglet rendu hors de l\'écran', shot.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])));
+        await cdp.detach();
+      } finally {
+        await b.close().catch(() => {});
+      }
+      // Ni client ni commande : la fenêtre cachée part, 30 s après la dernière commande, au passage suivant.
+      let rendered = true;
+      for (let i = 0; i < 30 && rendered; i++) {
+        await sleep(2000);
+        rendered = (await api('GET', `/sessions/${sid}`)).result.rendered;
+      }
+      check('la fenêtre cachée part avec la fin du pilotage', rendered === false);
+      await drop(sid);
+    });
   } finally {
     for (const sid of owned) await drop(sid).catch(() => {});
   }

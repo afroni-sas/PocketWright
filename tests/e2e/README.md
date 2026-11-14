@@ -98,6 +98,7 @@ intact.
 | 18 | Native engine: Unicode input, reading, queryAll, base64 PNG, JPEG capture and binary signature. |
 | 18 bis | Full Playwright: `newPage`, pop-ups, `storageState` of a closed origin, isolated `newContext`, `addCookies`, `grantPermissions`, `setGeolocation`. |
 | 18 ter | Dialogs with no external client, according to the mode set through REST. |
+| 18 quater | In a hidden tab driven over CDP: `rendered` without `shown`, every touch event answered, scroll during a swipe then with inertia, mouse wheel, capture, and the hidden window released once driving stops. |
 | 19 | No leftover test session, API and engine still ready. |
 
 ## Results

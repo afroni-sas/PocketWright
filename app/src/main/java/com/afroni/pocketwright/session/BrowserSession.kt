@@ -51,6 +51,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -139,8 +140,9 @@ data class FindState(val query: String, val active: Int = 0, val total: Int = 0)
  * propres cookies et son stockage (partagés avec les onglets de son groupe, comme les popups qu'il ouvre).
  *
  * La WebView vit hors de l'écran, à la taille du viewport de la session ; l'écran du navigateur l'emprunte
- * pour l'afficher. Un onglet peut être endormi (pas de WebView, voir [live]) pour libérer la mémoire : il se
- * réveille à sa dernière adresse dès qu'une commande ou l'écran le demande.
+ * pour l'afficher. Tant qu'on la pilote hors de l'écran, elle dessine dans une fenêtre cachée ([HiddenWindow]),
+ * pour suivre les gestes comme à l'écran (voir [rendered]). Un onglet peut être endormi (pas de WebView, voir
+ * [live]) pour libérer la mémoire : il se réveille à sa dernière adresse dès qu'une commande ou l'écran le demande.
  */
 class BrowserSession internal constructor(
     private val record: SessionRecord,
@@ -181,6 +183,12 @@ class BrowserSession internal constructor(
     @Volatile var viewportWidth: Int = record.viewportWidth; private set
     @Volatile var viewportHeight: Int = record.viewportHeight; private set
     @Volatile var shown: Boolean = false; private set
+
+    /**
+     * La WebView dessine dans une fenêtre visible : à l'écran de l'app, ou dans sa fenêtre cachée le temps du
+     * pilotage. Sans cela, la page tourne mais ne suit ni glissé, ni lancer, ni molette (PW-029).
+     */
+    @Volatile var rendered: Boolean = false; private set
     @Volatile var closed: Boolean = false; private set
     @Volatile var desktop: Boolean = record.desktop; private set
     @Volatile var canGoBack: Boolean = false; private set
@@ -203,11 +211,15 @@ class BrowserSession internal constructor(
     @Volatile private var thumbnailVersion = 0
     @Volatile private var thumbnailStale = true
     private var hostActivity: WeakReference<Activity>? = null
+    private var hidden: HiddenWindow? = null
+    @Volatile private var capturing = false
 
     @Volatile private var tint: Int? = null
     private var resumed = true
     private val runningCommands = AtomicInteger(0)
     @Volatile private var lastCommandAt = System.currentTimeMillis()
+    /** La fin de la dernière commande d'un client : l'ouverture de l'onglet n'en est pas une. */
+    @Volatile private var lastDrivenAt = 0L
     private var scrollDrift = 0
 
     private val _barsCollapsed = MutableStateFlow(false)
@@ -405,9 +417,11 @@ class BrowserSession internal constructor(
         view = null
         fingerprintScript = null
         (wv.parent as? ViewGroup)?.removeView(wv)
+        releaseHiddenWindow()
         _fullscreen.value = null
         context.baseContext = appContext
         shown = false
+        rendered = false
         runCatching {
             wv.stopLoading()
             wv.destroy()
@@ -421,10 +435,12 @@ class BrowserSession internal constructor(
     @MainThread
     private fun recover() {
         val old = view ?: return
-        val parent = old.parent as? ViewGroup
-        parent?.removeView(old)
+        // La fenêtre cachée part avec l'ancienne vue : la nouvelle en reprend une au prochain point d'activité.
+        val parent = (old.parent as? ViewGroup).takeUnless { hidden?.holds(old) == true }
+        (old.parent as? ViewGroup)?.removeView(old)
         runCatching { old.destroy() }
         view = null
+        releaseHiddenWindow()
         failPending(ApiException(409, "Le moteur de rendu s'est arrêté"))
         navigation?.done?.completeExceptionally(ApiException(502, "Le moteur de rendu s'est arrêté"))
         loading = false
@@ -444,6 +460,7 @@ class BrowserSession internal constructor(
             if (crashes.size >= MAX_CRASHES) lastError = "Cette page fait planter le moteur de rendu : $failing"
             val wv = view
             if (parent != null && wv != null) parent.addView(wv, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            updateActivity()
         }
         manager.changed(this)
     }
@@ -457,6 +474,8 @@ class BrowserSession internal constructor(
         val wv = view ?: return
         if (wv.parent === container) return
         (wv.parent as? ViewGroup)?.removeView(wv)
+        // L'écran de l'app prend la vue : la fenêtre cachée n'a plus lieu d'être.
+        releaseHiddenWindow()
         context.baseContext = activity
         container.addView(wv, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         hostActivity = (activity as? Activity)?.let { WeakReference(it) }
@@ -491,13 +510,70 @@ class BrowserSession internal constructor(
     @MainThread
     internal fun updateActivity() {
         val wv = view ?: return
+        val now = System.currentTimeMillis()
         // Un onglet de l'utilisateur s'endort vite ; une session d'automatisation peut attendre quelque chose.
         val grace = if (origin == TabOrigin.API) ACTIVE_AFTER_API_COMMAND_MS else ACTIVE_AFTER_COMMAND_MS
-        val active = (shown && manager.uiVisible) || clients.get() > 0 || runningCommands.get() > 0 ||
-            System.currentTimeMillis() - lastCommandAt < grace
-        if (active == resumed) return
-        resumed = active
-        if (active) wv.onResume() else wv.onPause()
+        val driving = clients.get() > 0 || runningCommands.get() > 0
+        val active = (shown && manager.uiVisible) || driving || now - lastCommandAt < grace
+        // La fenêtre cachée coûte de la mémoire : seulement pendant le pilotage, pas tout le délai de grâce, ni pour
+        // un onglet que l'app rouvre d'elle-même au démarrage.
+        val window = active && !shown && !closed &&
+            (driving || manager.externalCdp(group) > 0 || now - lastDrivenAt < RENDER_AFTER_COMMAND_MS)
+        // Une capture agrandit la vue là où elle est : on ne la déplace pas pendant ce temps.
+        if (!capturing && window) hostHidden(wv)
+        if (active != resumed) {
+            resumed = active
+            if (active) wv.onResume() else wv.onPause()
+        }
+        if (!capturing && !window) releaseHiddenWindow()
+        refreshRendered()
+    }
+
+    /** Met la WebView dans sa fenêtre cachée, à la taille du viewport. */
+    @MainThread
+    private fun hostHidden(wv: WebView) {
+        val current = hidden
+        if (current != null && current.usable && current.holds(wv)) return
+        // Dans l'écran de l'app (ou ailleurs) : on n'y touche pas.
+        if (wv.parent != null && current?.holds(wv) != true) return
+        // Android a fermé la fenêtre (écran retiré) : une autre la remplace.
+        if (current != null) releaseHiddenWindow()
+        // Refusée : l'onglet reste sans fenêtre, comme avant, et `rendered` le dit aux clients.
+        val next = HiddenWindow.create(appContext, "PocketWright $id") ?: return
+        hidden = next
+        val density = appContext.resources.displayMetrics.density
+        next.put(wv, (viewportWidth * density).roundToInt(), (viewportHeight * density).roundToInt())
+        preRaster(wv, true)
+        refreshRendered()
+    }
+
+    /** La WebView quitte sa fenêtre cachée et reprend sa mise en page hors de l'écran. */
+    @MainThread
+    private fun releaseHiddenWindow() {
+        val current = hidden ?: return
+        hidden = null
+        current.release()
+        view?.let { preRaster(it, false) }
+        layoutOffscreen()
+        refreshRendered()
+    }
+
+    /**
+     * Dans la fenêtre cachée, seuls quelques pixels de la vue sont visibles, et Chromium mesure sa mémoire de tuiles
+     * à ce qui est visible : sans ce réglage, il n'en aurait presque pas, n'afficherait plus tout et pourrait laisser
+     * un geste sans réponse. Hors de cette fenêtre, la vue reprend le réglage par défaut.
+     */
+    private fun preRaster(wv: WebView, on: Boolean) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.OFF_SCREEN_PRERASTER)) WebSettingsCompat.setOffscreenPreRaster(wv.settings, on)
+    }
+
+    @MainThread
+    private fun refreshRendered() {
+        val wv = view
+        val now = wv != null && (hidden?.let { it.usable && it.holds(wv) } == true || (shown && manager.uiVisible && wv.parent != null))
+        if (now == rendered) return
+        rendered = now
+        manager.changed(this)
     }
 
     /** Le temps d'une commande, l'onglet est éveillé et rendu actif. */
@@ -512,6 +588,7 @@ class BrowserSession internal constructor(
         } finally {
             runningCommands.decrementAndGet()
             lastCommandAt = System.currentTimeMillis()
+            lastDrivenAt = lastCommandAt
         }
     }
 
@@ -550,13 +627,17 @@ class BrowserSession internal constructor(
     @MainThread
     private fun layoutOffscreen() {
         val wv = view ?: return
-        if (wv.parent != null) return
         val density = appContext.resources.displayMetrics.density
         layoutAt(wv, (viewportWidth * density).roundToInt(), (viewportHeight * density).roundToInt())
     }
 
+    /** Donne sa taille à une vue hors de l'écran ; dans sa fenêtre cachée, la mise en page suit à l'image suivante. */
     @MainThread
     private fun layoutAt(wv: WebView, widthPx: Int, heightPx: Int) {
+        hidden?.takeIf { it.holds(wv) }?.let {
+            it.put(wv, widthPx, heightPx)
+            return
+        }
         if (wv.parent != null) return
         val w = widthPx.coerceAtLeast(1)
         val h = heightPx.coerceAtLeast(1)
@@ -1080,19 +1161,20 @@ class BrowserSession internal constructor(
         var m = metrics()
         val restore = m
         val grow = beyondViewport && !shown
-        if (grow) {
-            // Toute la page tient dans une vue agrandie le temps de la capture, comme le fait Chromium.
-            eval("window.scrollTo(0, 0); return true;", 5_000)
-            val k = m.num("scale") * m.num("dpr")
-            val cssHeight = clip?.let { it.y + it.height } ?: m.num("height")
-            withContext(Dispatchers.Main) {
-                val wv = requireView()
-                layoutAt(wv, wv.width, (cssHeight * k).roundToInt().coerceIn(wv.height, MAX_CAPTURE_PX))
-            }
-            delay(500)
-            m = metrics()
-        }
         try {
+            if (grow) {
+                // Toute la page tient dans une vue agrandie le temps de la capture, comme le fait Chromium.
+                eval("window.scrollTo(0, 0); return true;", 5_000)
+                val k = m.num("scale") * m.num("dpr")
+                val cssHeight = clip?.let { it.y + it.height } ?: m.num("height")
+                withContext(Dispatchers.Main) {
+                    val wv = requireView()
+                    capturing = true
+                    layoutAt(wv, wv.width, (cssHeight * k).roundToInt().coerceIn(wv.height, MAX_CAPTURE_PX))
+                }
+                delay(500)
+                m = metrics()
+            }
             val image = withContext(Dispatchers.Main) {
                 val wv = requireView()
                 if (!grow) layoutOffscreen()
@@ -1114,7 +1196,10 @@ class BrowserSession internal constructor(
             }
         } finally {
             if (grow) {
-                withContext(Dispatchers.Main) { if (!closed) layoutOffscreen() }
+                withContext(Dispatchers.Main + NonCancellable) {
+                    capturing = false
+                    if (!closed) layoutOffscreen()
+                }
                 runCatching { eval("window.scrollTo(${restore.num("sx")}, ${restore.num("sy")}); return true;", 5_000) }
             }
         }
@@ -1165,7 +1250,7 @@ class BrowserSession internal constructor(
             layoutOffscreen()
         }
         manager.changed(this, persist = true)
-        return buildJsonObject { put("width", width); put("height", height); put("shown", shown) }
+        return buildJsonObject { put("width", width); put("height", height); put("shown", shown); put("rendered", rendered) }
     }
 
     suspend fun cookies(forUrl: String?): JsonElement = withContext(Dispatchers.Main) {
@@ -1229,6 +1314,7 @@ class BrowserSession internal constructor(
         viewportHeight = viewportHeight,
         isolated = profile != null,
         shown = shown,
+        rendered = rendered,
         generation = generation,
         group = group,
         origin = origin,
@@ -1613,6 +1699,8 @@ class BrowserSession internal constructor(
         private const val THUMBNAIL_RATIO = 1.25f
         private const val ACTIVE_AFTER_COMMAND_MS = 20_000L
         private const val ACTIVE_AFTER_API_COMMAND_MS = 5L * 60_000
+        /** Combien de temps la fenêtre cachée reste après la dernière commande, sans client connecté. */
+        private const val RENDER_AFTER_COMMAND_MS = 30_000L
         internal const val TITLE_MARK = "__pw_mark_"
         private const val SCROLL_DRIFT_PX = 40
         private const val SCROLL_TOP_PX = 8

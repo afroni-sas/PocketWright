@@ -73,6 +73,11 @@ stateDiagram-v2
 ```
 
 - An API session stays active for five minutes after its last command, and as long as a client is connected.
+- A WebView attached to no window does not draw, so it does not follow touch gestures. While a session is driven off screen (a
+  client connected, or a command in the last 30 seconds), its WebView therefore sits in a window on a private 64-pixel virtual
+  display. The WebView keeps its own size, draws at the screen's rate and prepares its tiles for the whole view (offscreen
+  pre-raster), as on screen. This costs a few megabytes of graphics memory per driven session (1 to 7 MB measured), against 15 to
+  31 MB for a window the size of the view. Captures draw the whole view separately.
 - A command automatically wakes a paused or sleeping session.
 - After a restart, sessions keep their identifiers, cookies and storage, but only the most recent ones reopen immediately.
 - The number of tabs kept in memory follows the phone's RAM.
