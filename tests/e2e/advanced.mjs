@@ -325,6 +325,16 @@ export async function advanced({ step, check, api, cmd, headers, BASE, SITE, KEY
         await sleep(600);
         check('context.close() ferme ses onglets', (await api('GET', '/sessions')).result.length === count - 1);
 
+        // PW-028 : Playwright ouvre ces sessions par une session au niveau du navigateur.
+        const cdp = await context.newCDPSession(page);
+        check('context.newCDPSession(page)', (await cdp.send('Runtime.evaluate', { expression: '6 * 7' })).result.value === 42);
+        await cdp.detach();
+        const root = await b.newBrowserCDPSession();
+        const { targetInfos } = await root.send('Target.getTargets');
+        const pages = targetInfos.filter((t) => t.type === 'page');
+        check('newBrowserCDPSession ne voit que les pages de la session', pages.length === 1 && pages[0].url === page.url(), pages.map((t) => t.url).join(' '));
+        await root.detach();
+
         await context.grantPermissions(['geolocation'], { origin: SITE });
         await context.setGeolocation({ latitude: 14.69, longitude: -17.44 });
         check('grantPermissions et setGeolocation sans erreur', true);
