@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- `context.newCDPSession(page)` and `browser.newBrowserCDPSession()` work over the CDP gateway. Browser-level sessions see only the pages of their own group, like the connection itself (PW-028).
+
 ## [0.1.0] - 2026-11-09
 
 First public version. It has been validated on one phone (TECNO BG7n, Android 13), so please treat other devices as untested and [tell us how it behaves](https://github.com/afroni-sas/PocketWright/issues/new/choose). The APK is for arm64 phones.

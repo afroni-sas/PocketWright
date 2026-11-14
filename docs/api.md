@@ -170,7 +170,7 @@ const page = browser.contexts()[0].pages()[0];
 
 `browser.close()` disconnects without closing the session, and `page.close()` closes the tab.
 
-`context.newPage()`, `browser.newContext()`, `window.open`, `page.route`, `storageState`, `setInputFiles`, `frameLocator`
+`context.newPage()`, `browser.newContext()`, `context.newCDPSession()`, `browser.newBrowserCDPSession()`, `window.open`, `page.route`, `storageState`, `setInputFiles`, `frameLocator`
 and screenshots all work.
 
 Not available in a WebView: `page.pdf()` and Playwright's `download` event. The WebSocket API has its own `download` event.
