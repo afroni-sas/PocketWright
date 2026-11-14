@@ -7,9 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `rendered` in the session description: whether the page is drawn, and so follows touch gestures and the mouse wheel.
+
 ### Fixed
 
 - `context.newCDPSession(page)` and `browser.newBrowserCDPSession()` work over the CDP gateway. Browser-level sessions see only the pages of their own group, like the connection itself (PW-028).
+- Touch swipes, flings and the mouse wheel scroll sessions that are not on screen. While such a session is driven (a client connected, or a command in the last 30 seconds), its page draws in a small private virtual display (PW-029).
 
 ## [0.1.0] - 2026-11-09
 

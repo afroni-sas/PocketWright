@@ -30,6 +30,8 @@ data class SessionInfo(
     val viewportHeight: Int,
     val isolated: Boolean,
     val shown: Boolean,
+    /** La page dessine dans une fenêtre (l'écran de l'app ou une fenêtre cachée) : elle suit les gestes. */
+    val rendered: Boolean,
     val generation: Int,
     val group: String,
     val origin: String,
@@ -75,6 +77,7 @@ data class SessionInfo(
         put("viewport", buildJsonObject { put("width", viewportWidth); put("height", viewportHeight) })
         put("isolated", isolated)
         put("shown", shown)
+        put("rendered", rendered)
         put("group", group)
         put("origin", origin)
         put("live", live)
